@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c-primary: 31 56 100;
+  --c-secondary: 46 92 138;
+  --c-accent: 192 0 0;
+  --c-bg: 245 247 250;
+  --c-surface: 255 255 255;
+  --c-border: 226 232 240;
+  --c-text: 15 23 42;
+  --c-muted: 100 116 139;
+  --c-success: 22 163 74;
+  --c-warning: 217 119 6;
+  --c-danger: 220 38 38;
+  --c-info: 37 99 235;
+}
+
+html, body, #root { height: 100%; }
+body { @apply bg-bg text-txt font-sans antialiased; font-size: 14px; }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--c-border)) transparent; }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap; }
+  .btn-primary { @apply btn bg-primary text-white hover:opacity-90; }
+  .btn-secondary { @apply btn bg-surface border border-border text-txt hover:bg-bg; }
+  .btn-danger { @apply btn bg-danger text-white hover:opacity-90; }
+  .btn-success { @apply btn bg-success text-white hover:opacity-90; }
+  .btn-ghost { @apply btn text-txt hover:bg-bg; }
+  .btn-sm { @apply px-2 py-1 text-xs; }
+  .input { @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-txt placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/40; }
+  .label { @apply block text-xs font-medium text-muted mb-1; }
+  .card { @apply bg-surface border border-border rounded-lg shadow-sm; }
+  .card-body { @apply p-4; }
+  .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap; }
+  .table { @apply w-full text-sm; }
+  .table th { @apply text-start text-xs font-semibold text-muted uppercase tracking-wide px-3 py-2 border-b border-border bg-bg/60; }
+  .table td { @apply px-3 py-2 border-b border-border align-middle; }
+  .table tbody tr:hover { @apply bg-bg/60; }
+  .kpi { @apply card card-body flex flex-col gap-1; }
+  .kpi-value { @apply text-2xl font-bold; }
+  .kpi-label { @apply text-xs text-muted; }
+  .nav-item { @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm text-white/80 hover:bg-white/10 hover:text-white transition; }
+  .nav-item.active { @apply bg-white/15 text-white font-semibold; }
+  .section-title { @apply text-lg font-bold text-txt; }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 1024px) {
+  /* Adjust padding on smaller screens */
+  main { padding: 1rem; }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 13px; }
+
+  /* Reduce padding further on very small screens */
+  main { padding: 0.75rem; }
+
+  /* Stack form fields better */
+  .grid { gap: 0.75rem; }
+
+  /* Reduce button padding */
+  .btn { padding: 0.5rem 0.75rem; font-size: 12px; }
+  .btn-sm { padding: 0.375rem 0.5rem; font-size: 11px; }
+
+  /* Adjust table/card spacing */
+  .card-body { padding: 0.75rem; }
+  .badge { padding: 0.25rem 0.5rem; font-size: 11px; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; }
+  .print-area { display: block !important; }
+}
+
+/* ---------- Copyright signature effects (admin-configurable) ----------
+   Every template reads its color from --fx-color; when the admin picks
+   "follow theme" the color falls back to the active theme's accent,
+   so it re-colors itself automatically on every theme change. */
+.fx-base { --fx: var(--fx-color, rgb(var(--c-accent))); }
+
+/* 1) sweep — shine slides right-to-left through the text */
+.fx-sweep {
+  background-image: linear-gradient(90deg,
+    var(--fx) 0%, #ffffff 25%, var(--fx) 50%, #ffffff 75%, var(--fx) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fx-slide 7s linear infinite;
+  filter: drop-shadow(0 0 6px var(--fx));
+}
+@keyframes fx-slide {
+  0%   { background-position: 200% 0; }
+  100% { background-position: 0% 0; }
+}
+
+/* 2) glow — the name itself is neon, soft steady breathing */
+.fx-glow {
+  color: var(--fx);
+  animation: fx-breathe 3s ease-in-out infinite;
+}
+@keyframes fx-breathe {
+  0%, 100% { text-shadow: 0 0 4px var(--fx), 0 0 10px var(--fx); }
+  50%      { text-shadow: 0 0 8px var(--fx), 0 0 18px var(--fx), 0 0 28px var(--fx); }
+}
+
+/* 3) pulse — stronger heartbeat glow */
+.fx-pulse {
+  color: var(--fx);
+  animation: fx-pulse 1.6s ease-in-out infinite;
+}
+@keyframes fx-pulse {
+  0%, 100% { text-shadow: 0 0 2px var(--fx); opacity: 0.75; }
+  50%      { text-shadow: 0 0 10px var(--fx), 0 0 22px var(--fx), 0 0 34px var(--fx); opacity: 1; }
+}
+
+/* 4) frame — neon frame around the sentence */
+.fx-frame {
+  display: inline-block;
+  padding: 2px 12px;
+  border: 1px solid var(--fx);
+  border-radius: 9999px;
+  color: var(--fx);
+  animation: fx-frame 3s ease-in-out infinite;
+}
+@keyframes fx-frame {
+  0%, 100% { box-shadow: 0 0 4px var(--fx), inset 0 0 4px color-mix(in srgb, var(--fx) 40%, transparent); text-shadow: 0 0 4px var(--fx); }
+  50%      { box-shadow: 0 0 12px var(--fx), inset 0 0 10px color-mix(in srgb, var(--fx) 55%, transparent); text-shadow: 0 0 8px var(--fx); }
+}
+
+/* 5) box — glowing neon box behind the sentence */
+.fx-box {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--fx);
+  background: color-mix(in srgb, var(--fx) 18%, transparent);
+  color: #ffffff;
+  text-shadow: 0 0 6px var(--fx);
+  animation: fx-box 3.5s ease-in-out infinite;
+}
+@keyframes fx-box {
+  0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--fx) 60%, transparent); }
+  50%      { box-shadow: 0 0 16px var(--fx); }
+}
+
+/* 6) flicker — classic neon-sign flicker */
+.fx-flicker {
+  color: var(--fx);
+  text-shadow: 0 0 6px var(--fx), 0 0 14px var(--fx);
+  animation: fx-flicker 4s linear infinite;
+}
+@keyframes fx-flicker {
+  0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; text-shadow: 0 0 6px var(--fx), 0 0 14px var(--fx), 0 0 24px var(--fx); }
+  20%, 24%, 55% { opacity: 0.35; text-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-sweep, .fx-glow, .fx-pulse, .fx-frame, .fx-box, .fx-flicker { animation: none; }
+}

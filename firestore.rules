@@ -1,0 +1,239 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isActive() { return signedIn() && me().status == 'active'; }
+    // effectivePermissions is denormalized on the user doc and maintained by Cloud Functions
+    function can(p) { return isActive() && (me().isSuperAdmin == true || p in me().effectivePermissions); }
+    function bootstrapped() { return exists(/databases/$(database)/documents/system/bootstrap); }
+    function isSuperAdmin() { return isActive() && me().isSuperAdmin == true; }
+    function isOwner(field) { return isActive() && resource.data[field] == request.auth.uid; }
+
+    // ---------- users ----------
+    match /users/{uid} {
+      function touched() { return request.resource.data.diff(resource.data).affectedKeys(); }
+      // fields a user may change on his own document
+      function selfPrefs() { return ['language', 'themeId', 'darkMode', 'phone', 'photoUrl', 'mustChangePassword', 'lastLoginAt', 'updatedAt']; }
+      // fields that decide what someone can do — never editable on your own document
+      function privilegeFields() { return ['effectivePermissions', 'permissionOverrides', 'roleId', 'status']; }
+
+      allow read: if isActive() && (request.auth.uid == uid || can('users.view'));
+      // first run: the very first signed-in user may create his own doc (becomes Super Admin);
+      // afterwards only holders of users.create may create users (never another Super Admin)
+      allow create: if (signedIn() && request.auth.uid == uid && !bootstrapped())
+        || (can('users.create') && request.resource.data.isSuperAdmin != true && request.resource.data.roleId != 'super_admin');
+
+      allow update: if isActive()
+        // isSuperAdmin can never be written from a client, by anyone
+        && !touched().hasAny(['isSuperAdmin'])
+        && (
+          // 1) a user editing his own preferences
+          (request.auth.uid == uid && touched().hasOnly(selfPrefs()))
+          // 2) an admin with users.edit editing someone's record
+          || (can('users.edit')
+              // only a Super Admin may touch a Super Admin's record
+              && (resource.data.isSuperAdmin != true || isSuperAdmin())
+              // no self-escalation: you cannot change your own role / permissions / status
+              && (request.auth.uid != uid || !touched().hasAny(privilegeFields()))
+              // effectivePermissions must stay consistent with the overrides being written
+              && (!touched().hasAny(['effectivePermissions']) || can('roles.manage_permissions') || can('users.assign_role'))
+          )
+        );
+      allow delete: if false; // hard delete only through Cloud Function
+    }
+
+    // ---------- roles / permissions ----------
+    match /roles/{roleId} {
+      allow read: if isActive();
+      allow create, update: if can('roles.manage_permissions') || can('roles.edit') || can('roles.create');
+      allow delete: if can('roles.delete') && resource.data.isSystem != true;
+    }
+
+    // ---------- activity log (admin only) ----------
+    match /activity_log/{logId} {
+      allow read: if can('activity_log.view');
+      allow create: if isActive()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.timestamp == request.time;
+      // the only permitted edit is stamping an entry as undone
+      allow update: if isActive()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['undoneAt', 'undoneBy', 'undoneByName']);
+      allow delete: if can('activity_log.delete');
+    }
+    match /activity_log_archive/{logId} {
+      allow read: if can('activity_log.view');
+      allow create: if can('activity_log.delete');
+      allow update: if false;
+      allow delete: if can('activity_log.purge');
+    }
+    match /log_deletions/{id} {
+      allow read: if isSuperAdmin();
+      allow create: if can('activity_log.delete') && request.resource.data.deletedBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ---------- master data ----------
+    match /clients/{id} {
+      allow read: if isActive();
+      allow create: if can('clients.create');
+      allow update: if can('clients.edit');
+      allow delete: if can('clients.delete');
+    }
+    match /projects/{id} {
+      allow read: if isActive();
+      allow create: if can('projects.create');
+      allow update: if can('projects.edit');
+      allow delete: if can('projects.delete');
+    }
+    // team roster — engineers / salespeople who have no login account
+    match /team_members/{id} {
+      allow read: if isActive();
+      allow create: if can('team.create') || can('clients.create');
+      allow update: if can('team.edit') || can('clients.edit');
+      allow delete: if can('team.delete') || can('clients.delete');
+    }
+    match /lost_reasons/{id} {
+      allow read: if isActive();
+      allow write: if can('settings.edit_general');
+    }
+
+    // ---------- inquiries ----------
+    match /inquiries/{id} {
+      allow read: if can('inquiries.view.all')
+        || (can('inquiries.view.own') && (resource.data.salespersonId == request.auth.uid
+                                          || resource.data.assignedEngineerId == request.auth.uid
+                                          || request.auth.uid in resource.data.get('engineerIds', [])
+                                          || resource.data.createdBy == request.auth.uid));
+      allow create: if (can('inquiries.create') && request.resource.data.createdBy == request.auth.uid)
+        || can('inquiries.delete'); // restoring a bundle from the trash re-creates the document
+      allow update: if can('inquiries.edit') || can('inquiries.change_status')
+        || can('inquiries.assign') || can('inquiries.set_priority')
+        || (can('inquiries.view.own') && (resource.data.salespersonId == request.auth.uid
+                                          || resource.data.assignedEngineerId == request.auth.uid
+                                          || request.auth.uid in resource.data.get('engineerIds', [])));
+      allow delete: if can('inquiries.delete');
+
+      // subcollections are immutable, except that deleting the inquiry sweeps them away
+      match /history/{hid} {
+        allow read: if isActive();
+        allow create: if (isActive() && request.resource.data.by == request.auth.uid) || can('inquiries.delete');
+        allow update: if false;
+        allow delete: if can('inquiries.delete');
+      }
+      match /remarks/{rid} {
+        allow read: if isActive();
+        allow create: if (isActive() && request.resource.data.by == request.auth.uid) || can('inquiries.delete');
+        allow update: if false;
+        allow delete: if can('inquiries.delete');
+      }
+      match /attachments/{aid} {
+        allow read: if isActive();
+        allow create: if isActive();
+        allow delete: if can('inquiries.edit') || can('inquiries.delete');
+      }
+      match /followups/{fid} {
+        allow read: if isActive();
+        allow create, update: if can('follow_ups.create') || can('follow_ups.edit') || can('inquiries.delete');
+        allow delete: if can('inquiries.delete');
+      }
+    }
+
+    // ---------- tasks ----------
+    match /tasks/{id} {
+      allow read: if can('tasks.view.all')
+        || (isActive() && (resource.data.assignedTo == request.auth.uid || resource.data.assignedBy == request.auth.uid));
+      allow create: if (can('tasks.create') && request.resource.data.assignedBy == request.auth.uid) || can('inquiries.delete');
+      // the manager may edit anything; the assignee may only move his own task along
+      allow update: if can('tasks.edit')
+        || (isActive() && resource.data.assignedTo == request.auth.uid)
+        || (isActive() && resource.data.assignedBy == request.auth.uid);
+      allow delete: if can('tasks.delete') || can('inquiries.delete');
+    }
+
+    // ---------- trash (30-day recycle bin) ----------
+    match /trash/{id} {
+      allow read: if can('activity_log.view') || isActive();
+      allow create: if isActive() && request.resource.data.deletedBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if can('inquiries.delete') || can('activity_log.purge');
+    }
+
+    // ---------- issues (problem log) ----------
+    match /issues/{id} {
+      allow read: if can('issues.view') || isActive();
+      allow create: if (can('issues.create') && request.resource.data.createdBy == request.auth.uid) || can('inquiries.delete');
+      allow update: if can('issues.edit') || can('issues.resolve');
+      allow delete: if can('issues.delete') || can('inquiries.delete');
+    }
+
+    // ---------- quotations ----------
+    match /quotations/{id} {
+      allow read: if isActive();
+      allow create: if (can('quotations.create') && request.resource.data.inquiryId != null) || can('inquiries.delete');
+      allow update: if can('quotations.edit') || can('quotations.approve') || can('quotations.reject')
+        || can('quotations.send_to_sales') || can('quotations.send_to_client') || can('quotations.submit_for_approval');
+      allow delete: if can('quotations.delete') || can('inquiries.delete');
+      match /revisions/{rid} {
+        allow read: if isActive();
+        allow create: if can('quotations.create_revision') || can('quotations.edit');
+        allow update: if false;
+        allow delete: if can('quotations.delete') || can('inquiries.delete');
+      }
+    }
+
+    // ---------- extension requests ----------
+    match /extension_requests/{id} {
+      allow read: if isActive();
+      allow create: if (can('extensions.request') && request.resource.data.requestedBy == request.auth.uid) || can('inquiries.delete');
+      allow update: if can('extensions.approve') || can('extensions.reject');
+      allow delete: if can('inquiries.delete');
+    }
+
+    // ---------- notifications ----------
+    match /notifications/{id} {
+      // read: can read user's own notifications OR broadcast messages they're in recipients list
+      // broadcast admins can read all broadcasts (for delivery analytics)
+      allow read: if isActive() && (resource.data.userId == request.auth.uid
+                                    || (resource.data.type == 'broadcast' && request.auth.uid in resource.data.recipients)
+                                    || (resource.data.type == 'broadcast' && can('admin.broadcast_message')));
+      // create: any active user may create regular notifications (assignments, alerts
+      // are written cross-user by the acting client); broadcasts need the admin permission.
+      // get('type','') keeps older clients that send no type field working.
+      allow create: if isActive() && (
+        request.resource.data.get('type', '') != 'broadcast'
+        || can('admin.broadcast_message')
+      );
+      // update: user can update readBy/deletedBy for their own notifications and broadcasts they're in
+      allow update: if isActive() && (
+        (resource.data.userId == request.auth.uid)
+        || (resource.data.type == 'broadcast' && request.auth.uid in resource.data.recipients)
+      ) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readBy', 'deletedBy']);
+      // delete: user can delete their own notifications (soft delete via deletedBy)
+      allow delete: if isActive() && resource.data.userId == request.auth.uid;
+    }
+
+    // ---------- settings ----------
+    match /settings/{id} {
+      allow read: if isActive() || (signedIn() && id == 'general');
+      allow write: if can('settings.edit_general') || can('settings.edit_theme')
+        || can('settings.edit_workflow') || can('settings.edit_sla');
+    }
+    match /themes/{id} {
+      allow read: if isActive();
+      allow write: if can('settings.edit_theme');
+    }
+    match /counters/{id} {
+      allow read: if isActive();
+      allow write: if can('inquiries.create') || can('quotations.create');
+    }
+    // bootstrap flag — readable before login so the setup screen knows whether to show
+    match /system/{id} {
+      allow read: if true;
+      allow create: if signedIn() && id == 'bootstrap'; // first run only (create fails once it exists)
+      allow update, delete: if false;
+    }
+  }
+}
