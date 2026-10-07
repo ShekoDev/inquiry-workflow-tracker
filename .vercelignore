@@ -1,0 +1,13 @@
+node_modules
+dist
+functions
+.firebase
+firebase.json
+.firebaserc
+firestore.rules
+firestore.indexes.json
+storage.rules
+*.bat
+*.log
+env.txt
+START.txt
